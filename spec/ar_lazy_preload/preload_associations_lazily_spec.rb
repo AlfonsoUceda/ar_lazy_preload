@@ -151,6 +151,62 @@ describe "ActiveRecord::Relation.preload_associations_lazily" do
         posts.size
       end.to_not make_database_queries
     end
+
+    # SELECT "comments".* FROM "comments" WHERE "comments"."post_id" IN (...)
+    it "loads association of a loaded relation automatically" do
+      posts = Post.all.load
+
+      expect do
+        posts.preload_associations_lazily.each { |post| post.comments.to_a }
+      end.to make_database_queries(count: 1)
+    end
+  end
+
+  describe "on a has_many association" do
+    let!(:post_3) { create(:post, user: user1) }
+    let!(:comment_3) { create(:comment, user: user2, post: post_3) }
+
+    # SELECT "posts".* FROM "posts" WHERE "posts"."user_id" = ?
+    # SELECT "comments".* FROM "comments" WHERE "comments"."post_id" IN (...)
+    it "loads association automatically" do
+      posts = User.find(user1.id).posts.preload_associations_lazily
+
+      expect do
+        posts.each { |post| post.comments.to_a }
+      end.to make_database_queries(count: 2)
+    end
+
+    # SELECT "posts".* FROM "posts" WHERE "posts"."user_id" = ? ORDER BY "posts"."id" ASC
+    # SELECT "comments".* FROM "comments" WHERE "comments"."post_id" IN (...)
+    it "loads association automatically after a scope" do
+      posts = User.find(user1.id).posts.preload_associations_lazily.order(:id)
+
+      expect do
+        posts.each { |post| post.comments.to_a }
+      end.to make_database_queries(count: 2)
+    end
+
+    # SELECT "comments".* FROM "comments" WHERE "comments"."post_id" IN (...)
+    it "loads association automatically after a scope when the association is loaded" do
+      user = User.find(user1.id)
+      user.posts.load
+      posts = user.posts.preload_associations_lazily.order(:id).to_a
+
+      expect do
+        posts.each { |post| post.comments.to_a }
+      end.to make_database_queries(count: 1)
+    end
+
+    # SELECT "comments".* FROM "comments" WHERE "comments"."post_id" IN (...)
+    it "keeps the context that the owner context gave to the loaded associations" do
+      users = User.preload_associations_lazily.to_a
+      users.first.posts.to_a
+      posts = users.flat_map { |user| user.posts.preload_associations_lazily.to_a }
+
+      expect do
+        posts.each { |post| post.comments.to_a }
+      end.to make_database_queries(count: 1)
+    end
   end
 
   describe "has_one through with STI" do

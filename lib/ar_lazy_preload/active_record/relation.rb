@@ -43,8 +43,21 @@ module ArLazyPreload
     #   end
     #
     # Same effect can be achieved by User.lazy_preload(posts: :comments)
+    #
+    # A relation that is not loaded is copied. A has_many association copies its association
+    # scope: the association itself loads its records without reading the flag. A loaded relation
+    # does not run its query again: it registers the context only for its records without one, so
+    # a context that the records already share stays.
     def preload_associations_lazily
-      tap { |relation| relation.preloads_associations_lazily = true }
+      return spawn.tap { |relation| relation.preloads_associations_lazily = true } unless loaded?
+
+      self.preloads_associations_lazily = true
+      Context.register(
+        records: ar_lazy_preload_records.select { |record| record.lazy_preload_context.nil? },
+        association_tree: lazy_preload_values,
+        auto_preload: true
+      )
+      self
     end
 
     # Specify relationships to be loaded lazily when association is loaded for the first time. For
