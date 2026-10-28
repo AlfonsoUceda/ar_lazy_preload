@@ -62,34 +62,40 @@ module ArLazyPreload
       end
 
       # Prepare one context for the intermediate records of a through chain. The intermediate
-      # association is marked as loaded only when all owners have it loaded: the Rails preloader
-      # does not always load it (for example with a scope on the through association or an STI
-      # target), and then it must stay available for lazy preloading.
+      # association is marked as loaded for the whole context, so only when every record of the
+      # context that has it has it loaded: the Rails preloader does not always load it (for
+      # example with a scope on the through association or an STI target), and records outside
+      # the chain can have an association with the same name. Then it must stay available for
+      # lazy preloading.
       def prepare_through_association_contexts(association_name, filtered_records)
-        names = filtered_records.map(&:class).uniq.flat_map do |klass|
-          through_association_chain(association_name, klass)
-        end
+        intermediate_owners(association_name, filtered_records).each do |name, owners|
+          next if association_loaded?(name)
 
-        names.uniq.each do |intermediate_name|
-          next if association_loaded?(intermediate_name)
-
-          owners = records_with_association(filtered_records, intermediate_name)
-          next unless owners.all? { |owner| owner.association(intermediate_name).loaded? }
-
-          loaded_association_names.add(intermediate_name)
-          register_intermediate_records(owners, intermediate_name)
+          register_intermediate_records(owners, name)
+          loaded_association_names.add(name) if loaded_for_all_records?(name)
         end
       end
 
-      def records_with_association(records, association_name)
-        records.select { |record| record.class.reflect_on_association(association_name) }
+      def intermediate_owners(association_name, filtered_records)
+        filtered_records.group_by(&:class).each_with_object({}) do |(klass, klass_records), owners|
+          through_association_chain(association_name, klass).each do |name|
+            (owners[name] ||= []).concat(klass_records)
+          end
+        end
       end
 
-      def register_intermediate_records(owners, intermediate_name)
-        intermediate_records = owners.flat_map do |owner|
-          owner.association(intermediate_name).target
+      # A record that already has a context keeps it, because that context can hold the records of
+      # other owners too.
+      def register_intermediate_records(owners, name)
+        associations = owners.map { |owner| owner.association(name) }.select(&:loaded?)
+        targets = associations.flat_map(&:target).compact.reject(&:lazy_preload_context)
+        ArLazyPreload::Context.register(records: targets, auto_preload: true)
+      end
+
+      def loaded_for_all_records?(name)
+        records.all? do |record|
+          !preloadable_record?(name, record) || record.association(name).loaded?
         end
-        ArLazyPreload::Context.register(records: intermediate_records.compact, auto_preload: true)
       end
 
       # Extract chain of intermediate association names for through associations

@@ -222,4 +222,20 @@ describe "ActiveRecord::Relation.preload_associations_lazily" do
       end.to make_database_queries(count: 1)
     end
   end
+
+  describe "has_many through with records outside the through chain in the context" do
+    # The users have the intermediate association of Post#comment_users (comments), but not
+    # the through association.
+    # SELECT "comments".* FROM "comments" WHERE "comments"."user_id" IN (...)
+    it "keeps lazy preloading for the intermediate association of those records" do
+      posts = Post.all.to_a
+      users = User.all.to_a
+      ArLazyPreload::Context.register(records: posts + users, auto_preload: true)
+      posts.each { |post| post.comment_users.to_a }
+
+      expect do
+        users.each { |user| user.comments.to_a }
+      end.to make_database_queries(count: 1)
+    end
+  end
 end
