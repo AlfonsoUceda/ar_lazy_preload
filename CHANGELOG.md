@@ -2,7 +2,7 @@
 
 ## master
 
-- [PR [#XX](https://github.com/DmitryTsepelev/ar_lazy_preload/pull/XX)] Fix lazy preloading for has_many associations and loaded relations in preload_associations_lazily ([@AlfonsoUceda][])
+- [PR [#94](https://github.com/DmitryTsepelev/ar_lazy_preload/pull/94)] Fix lazy preloading for has_many associations and loaded relations in preload_associations_lazily ([@AlfonsoUceda][])
 
 ## 2.1.2 (2026-05-10)
 
