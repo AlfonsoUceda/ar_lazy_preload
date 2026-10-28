@@ -179,5 +179,47 @@ describe "ActiveRecord::Relation.preload_associations_lazily" do
         expect(a.candidate.lazy_preload_context).not_to be_nil
       end
     end
+
+    # SELECT "applications".* FROM "applications" WHERE "applications"."id" IN (...)
+    it "loads intermediate association in one query after the through association" do
+      assignments = Assignment.preload_associations_lazily.to_a
+      assignments.each(&:candidate)
+
+      expect do
+        assignments.each(&:application)
+      end.to make_database_queries(count: 1)
+    end
+  end
+
+  describe "has_many through with a scope" do
+    # The scope makes the preloader load the intermediate records without
+    # assigning them to the owners, so the intermediate association stays unloaded.
+    # SELECT "posts".* FROM "posts" WHERE "posts"."user_id" IN (...)
+    it "loads intermediate association in one query after the through association" do
+      users = User.preload_associations_lazily.to_a
+      users.each { |user| user.thread_comments_on_posts.to_a }
+
+      expect do
+        users.each { |user| user.posts.to_a }
+      end.to make_database_queries(count: 1)
+    end
+  end
+
+  describe "has_many through with owners of two classes" do
+    let!(:private_post) { create(:private_post, user: user1) }
+    let!(:comment_3) { create(:comment, user: user2, post: private_post) }
+    let!(:vote_5) { create(:vote, voteable: comment_3, user: user1) }
+
+    # The posts are a Post and a PrivatePost, and the preloader assigns the comments of both.
+    # SELECT "votes".* FROM "votes" WHERE "votes"."voteable_id" IN (...)
+    it "gives the intermediate records of all owners one context" do
+      posts = Post.preload_associations_lazily.to_a
+      posts.each { |post| post.comment_users.to_a }
+      comments = posts.flat_map { |post| post.comments.to_a }
+
+      expect do
+        comments.each { |comment| comment.votes.to_a }
+      end.to make_database_queries(count: 1)
+    end
   end
 end

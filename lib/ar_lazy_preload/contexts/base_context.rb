@@ -61,37 +61,35 @@ module ArLazyPreload
         )
       end
 
-      # Prepare context for intermediate associations in through chains
+      # Prepare one context for the intermediate records of a through chain. The intermediate
+      # association is marked as loaded only when all owners have it loaded: the Rails preloader
+      # does not always load it (for example with a scope on the through association or an STI
+      # target), and then it must stay available for lazy preloading.
       def prepare_through_association_contexts(association_name, filtered_records)
-        filtered_records.group_by(&:class).each do |klass, klass_records|
-          chain = through_association_chain(association_name, klass)
-          next if chain.empty?
+        names = filtered_records.map(&:class).uniq.flat_map do |klass|
+          through_association_chain(association_name, klass)
+        end
 
-          chain.each do |intermediate_name|
-            register_intermediate_context(klass, klass_records, intermediate_name)
-          end
+        names.uniq.each do |intermediate_name|
+          next if association_loaded?(intermediate_name)
+
+          owners = records_with_association(filtered_records, intermediate_name)
+          next unless owners.all? { |owner| owner.association(intermediate_name).loaded? }
+
+          loaded_association_names.add(intermediate_name)
+          register_intermediate_records(owners, intermediate_name)
         end
       end
 
-      def register_intermediate_context(klass, klass_records, intermediate_name)
-        return if association_loaded?(intermediate_name)
-
-        reflection = klass.reflect_on_association(intermediate_name)
-        return if reflection.nil?
-
-        loaded_association_names.add(intermediate_name)
-
-        intermediate_records = collect_intermediate_records(klass_records, reflection)
-        return if intermediate_records.empty?
-
-        ArLazyPreload::Context.register(records: intermediate_records, auto_preload: true)
+      def records_with_association(records, association_name)
+        records.select { |record| record.class.reflect_on_association(association_name) }
       end
 
-      def collect_intermediate_records(klass_records, reflection)
-        klass_records.flat_map do |record|
-          record_association = record.association(reflection.name)
-          record_association.target
-        end.compact
+      def register_intermediate_records(owners, intermediate_name)
+        intermediate_records = owners.flat_map do |owner|
+          owner.association(intermediate_name).target
+        end
+        ArLazyPreload::Context.register(records: intermediate_records.compact, auto_preload: true)
       end
 
       # Extract chain of intermediate association names for through associations

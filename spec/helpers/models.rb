@@ -7,6 +7,7 @@ class User < ActiveRecord::Base
   has_many :posts
   has_many :comments
   has_many :comments_on_posts, through: :posts, source: :comments
+  has_many :thread_comments_on_posts, -> { threads }, through: :posts, source: :comments
   has_many :votes
   has_many :club_memberships, class_name: "ClubMember"
   has_many :clubs, through: :club_memberships, source: :user
@@ -21,6 +22,7 @@ class Post < ActiveRecord::Base
   has_many :comments
   has_many :comments_with_preloaded_users, -> { includes(:user) }, class_name: "Comment"
   has_many :comment_threads, -> { threads }, class_name: "Comment"
+  has_many :comment_users, through: :comments, source: :user
   has_many :comments_mentioning_user, lambda { |post|
     where("comments.body LIKE ?", post.user.name)
   }, class_name: "Comment"
